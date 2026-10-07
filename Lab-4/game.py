@@ -1,12 +1,16 @@
 import random
 from words import WORDS, HINTS
+from stats import SessionStats
 
 
 class HangmanGame:
     def __init__(self):
+        # Session state: lasts for the whole run.
         self.score = 0
         self.streak = 0
+        self.stats = SessionStats()
         self.category = "technology"
+        # Round state: reset by start_round().
         self.secret = ""
         self.guessed = set()
         self.wrong = set()
@@ -14,6 +18,7 @@ class HangmanGame:
         self.hint_used = False
 
     def start_round(self):
+        """Reset round-specific state only; session state is untouched."""
         self.secret = random.choice(WORDS[self.category])
         self.guessed.clear()
         self.wrong.clear()
@@ -45,7 +50,17 @@ class HangmanGame:
         self.score = max(0, self.score - 1)
         return HINTS.get(self.secret, "No hint available.")
 
+    def finish_round(self, won):
+        """Update streak, score and session stats for a completed round."""
+        if won:
+            self.streak += 1
+            self.score += 5 + self.streak
+        else:
+            self.streak = 0
+        self.stats.record(won, self.streak)
+
     def play_round(self):
+        """Play one round. Returns False if the player quit mid-round."""
         self.start_round()
         while self.lives > 0 and not self.won():
             print("\nWord:", self.masked())
@@ -60,19 +75,28 @@ class HangmanGame:
                 continue
             print(self.guess(raw))
 
-        if self.won():
-            self.streak += 1
-            self.score += 5 + self.streak
+        won = self.won()
+        self.finish_round(won)
+        if won:
             print("Solved:", self.secret)
-            return True
-
-        self.streak = 0
-        print("Out of lives. The word was:", self.secret)
+        else:
+            print("Out of lives. The word was:", self.secret)
         return True
+
+    def print_summary(self):
+        print("\n--- Session summary ---")
+        print("Rounds played:", self.stats.rounds)
+        print("Rounds won:   ", self.stats.wins)
+        print("Best streak:  ", self.stats.best_streak)
+        print("Final score:  ", self.score)
 
     def run(self):
         print("Hangman Challenge")
         print("A session consists of multiple rounds.")
+        self.session_loop()
+        self.print_summary()
+
+    def session_loop(self):
         while True:
             print("\nCategories:", ", ".join(WORDS))
             raw = input("Choose category or q: ").strip().lower()
@@ -84,7 +108,8 @@ class HangmanGame:
             self.category = raw
             if not self.play_round():
                 return
+            print("Rounds:", self.stats.rounds, "Wins:", self.stats.wins,
+                  "Best streak:", self.stats.best_streak)
             again = input("Another round? [y/n]: ").strip().lower()
             if again != "y":
-                print("Final score:", self.score, " Streak:", self.streak)
                 return
