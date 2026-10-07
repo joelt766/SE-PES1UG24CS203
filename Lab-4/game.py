@@ -42,8 +42,13 @@ class HangmanGame:
         return all(ch in self.guessed for ch in set(self.secret))
 
     def guess(self, letter):
-        if len(letter) != 1 or not letter.isalpha():
-            return "Enter one letter."
+        """Apply one guess. Invalid or repeated input never changes state."""
+        if not letter:
+            return "Enter a letter."
+        if len(letter) != 1:
+            return "Enter only one letter at a time."
+        if not ("a" <= letter <= "z"):
+            return "Letters a-z only."
         if letter in self.guessed or letter in self.wrong:
             return "Already guessed."
         if letter in self.secret:
@@ -82,19 +87,27 @@ class HangmanGame:
     def play_round(self):
         """Play one round. Returns False if the player quit mid-round."""
         self.start_round()
+        show_board = True
         while self.lives > 0 and not self.won():
-            print("\nWord:", self.masked())
-            print("Wrong:", " ".join(sorted(self.wrong)) or "-")
-            print("Lives:", self.lives, "Score:", self.score, "Streak:", self.streak,
-                  f"[{self.category}, {self.difficulty}]")
+            # Redraw the board only when something changed, so invalid
+            # input gets one short message instead of a repeated board.
+            if show_board:
+                self.print_board()
             raw = input("Letter, /hint, or /quit: ").strip().lower()
             if raw == "/quit":
                 return False
             if raw == "/hint":
                 hint = self.use_hint()
                 print(hint if hint else "Hint already used.")
+                show_board = False
                 continue
-            print(self.guess(raw))
+            if raw.startswith("/"):
+                print("Unknown command. Use /hint or /quit.")
+                show_board = False
+                continue
+            result = self.guess(raw)
+            print(result)
+            show_board = result in ("Correct.", "Wrong.")
 
         won = self.won()
         points = self.finish_round(won)
@@ -104,14 +117,56 @@ class HangmanGame:
             print("Out of lives. The word was:", self.secret)
         return True
 
-    def choose_difficulty(self):
-        for name, (lives, mult) in DIFFICULTIES.items():
-            print(f"  {name}: {lives} lives, x{mult} points")
+    def print_board(self):
+        print("\nWord:", self.masked())
+        print("Wrong:", " ".join(sorted(self.wrong)) or "-")
+        print("Lives:", self.lives, "Score:", self.score, "Streak:", self.streak,
+              f"[{self.category}, {self.difficulty}]")
+
+    @staticmethod
+    def pick(options, raw):
+        """Match raw input to an option by name or 1-based number, else None."""
+        if raw in options:
+            return raw
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return options[int(raw) - 1]
+        return None
+
+    def choose_category(self):
+        """Return a category name, or None if the player chose to quit."""
+        names = list(WORDS)
+        print("\nCategories:")
+        for i, name in enumerate(names, 1):
+            print(f"  {i}. {name}")
         while True:
-            raw = input("Choose difficulty: ").strip().lower()
-            if raw in DIFFICULTIES:
-                return raw
+            raw = input("Choose category (name or number) or q: ").strip().lower()
+            if raw == "q":
+                return None
+            choice = self.pick(names, raw)
+            if choice:
+                return choice
+            print("Unknown category.")
+
+    def choose_difficulty(self):
+        names = list(DIFFICULTIES)
+        for i, name in enumerate(names, 1):
+            lives, mult = DIFFICULTIES[name]
+            print(f"  {i}. {name}: {lives} lives, x{mult} points")
+        while True:
+            raw = input("Choose difficulty (name or number): ").strip().lower()
+            choice = self.pick(names, raw)
+            if choice:
+                return choice
             print("Unknown difficulty.")
+
+    def ask_again(self):
+        while True:
+            raw = input("Another round? [y/n]: ").strip().lower()
+            if raw in ("y", "yes"):
+                return True
+            if raw in ("n", "no"):
+                return False
+            print("Please answer y or n.")
 
     def print_summary(self):
         print("\n--- Session summary ---")
@@ -123,24 +178,22 @@ class HangmanGame:
     def run(self):
         print("Hangman Challenge")
         print("A session consists of multiple rounds.")
-        self.session_loop()
+        try:
+            self.session_loop()
+        except (EOFError, KeyboardInterrupt):
+            print("\nGame interrupted.")
         self.print_summary()
 
     def session_loop(self):
         while True:
-            print("\nCategories:", ", ".join(WORDS))
-            raw = input("Choose category or q: ").strip().lower()
-            if raw == "q":
+            category = self.choose_category()
+            if category is None:
                 return
-            if raw not in WORDS:
-                print("Unknown category.")
-                continue
-            self.category = raw
+            self.category = category
             self.difficulty = self.choose_difficulty()
             if not self.play_round():
                 return
             print("Rounds:", self.stats.rounds, "Wins:", self.stats.wins,
                   "Best streak:", self.stats.best_streak)
-            again = input("Another round? [y/n]: ").strip().lower()
-            if again != "y":
+            if not self.ask_again():
                 return
