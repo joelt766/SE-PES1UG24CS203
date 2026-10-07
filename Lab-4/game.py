@@ -2,6 +2,15 @@ import random
 from words import WORDS, HINTS
 from stats import SessionStats
 
+# name: (lives, score multiplier)
+DIFFICULTIES = {
+    "easy": (8, 1),
+    "medium": (6, 2),
+    "hard": (4, 3),
+}
+BASE_POINTS = 5
+HINT_PENALTY = 2
+
 
 class HangmanGame:
     def __init__(self):
@@ -10,6 +19,7 @@ class HangmanGame:
         self.streak = 0
         self.stats = SessionStats()
         self.category = "technology"
+        self.difficulty = "medium"
         # Round state: reset by start_round().
         self.secret = ""
         self.guessed = set()
@@ -22,7 +32,7 @@ class HangmanGame:
         self.secret = random.choice(WORDS[self.category])
         self.guessed.clear()
         self.wrong.clear()
-        self.lives = 6
+        self.lives, self.multiplier = DIFFICULTIES[self.difficulty]
         self.hint_used = False
 
     def masked(self):
@@ -47,17 +57,27 @@ class HangmanGame:
         if self.hint_used:
             return None
         self.hint_used = True
-        self.score = max(0, self.score - 1)
-        return HINTS.get(self.secret, "No hint available.")
+        hint = HINTS.get(self.secret, "No hint available.")
+        return hint + f" (-{HINT_PENALTY} from this round's reward)"
+
+    def round_points(self):
+        """Win reward: (base + streak - hint penalty), floored at 0, times multiplier."""
+        penalty = HINT_PENALTY if self.hint_used else 0
+        return max(0, BASE_POINTS + self.streak - penalty) * self.multiplier
 
     def finish_round(self, won):
-        """Update streak, score and session stats for a completed round."""
+        """Update streak, score and session stats for a completed round.
+
+        Returns the points earned this round."""
+        points = 0
         if won:
             self.streak += 1
-            self.score += 5 + self.streak
+            points = self.round_points()
+            self.score += points
         else:
             self.streak = 0
         self.stats.record(won, self.streak)
+        return points
 
     def play_round(self):
         """Play one round. Returns False if the player quit mid-round."""
@@ -65,7 +85,8 @@ class HangmanGame:
         while self.lives > 0 and not self.won():
             print("\nWord:", self.masked())
             print("Wrong:", " ".join(sorted(self.wrong)) or "-")
-            print("Lives:", self.lives, "Score:", self.score, "Streak:", self.streak)
+            print("Lives:", self.lives, "Score:", self.score, "Streak:", self.streak,
+                  f"[{self.category}, {self.difficulty}]")
             raw = input("Letter, /hint, or /quit: ").strip().lower()
             if raw == "/quit":
                 return False
@@ -76,12 +97,21 @@ class HangmanGame:
             print(self.guess(raw))
 
         won = self.won()
-        self.finish_round(won)
+        points = self.finish_round(won)
         if won:
-            print("Solved:", self.secret)
+            print("Solved:", self.secret, f"(+{points} points)")
         else:
             print("Out of lives. The word was:", self.secret)
         return True
+
+    def choose_difficulty(self):
+        for name, (lives, mult) in DIFFICULTIES.items():
+            print(f"  {name}: {lives} lives, x{mult} points")
+        while True:
+            raw = input("Choose difficulty: ").strip().lower()
+            if raw in DIFFICULTIES:
+                return raw
+            print("Unknown difficulty.")
 
     def print_summary(self):
         print("\n--- Session summary ---")
@@ -106,6 +136,7 @@ class HangmanGame:
                 print("Unknown category.")
                 continue
             self.category = raw
+            self.difficulty = self.choose_difficulty()
             if not self.play_round():
                 return
             print("Rounds:", self.stats.rounds, "Wins:", self.stats.wins,
